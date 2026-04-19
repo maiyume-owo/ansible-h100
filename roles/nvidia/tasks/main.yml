@@ -1,0 +1,175 @@
+---
+- name: Check whether NVIDIA driver stack is already working
+  ansible.builtin.command: nvidia-smi
+  register: nvidia_smi_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - nvidia
+    - nvidia_check
+
+- name: Install NVIDIA driver, fabric, MFT, NCCL, and DCGM from offline media
+  when: nvidia_smi_check.rc != 0
+  block:
+    - name: Download NVIDIA driver local repository package
+      ansible.builtin.get_url:
+        url: "{{ offline_repo_base }}/{{ nvidia_driver_repo_deb }}"
+        dest: "{{ nvidia_driver_repo_path }}"
+        mode: "0644"
+        timeout: 300
+      register: nvidia_repo_download
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_repo
+
+    - name: Install NVIDIA driver local repository package
+      ansible.builtin.apt:
+        deb: "{{ nvidia_driver_repo_path }}"
+        state: present
+      environment: "{{ hgx_apt_environment }}"
+      register: nvidia_repo_install
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_repo
+
+    - name: Discover NVIDIA driver repository keyring
+      # The local repo package drops a versioned keyring file under /var/.
+      ansible.builtin.find:
+        paths: "{{ nvidia_driver_repo_dir }}"
+        patterns: "nvidia-driver-*-keyring.gpg"
+        file_type: file
+      register: nvidia_repo_keyring
+      changed_when: false
+      tags:
+        - nvidia
+        - nvidia_repo
+
+    - name: Install NVIDIA driver repository keyring
+      ansible.builtin.copy:
+        src: "{{ nvidia_repo_keyring.files[0].path }}"
+        dest: "/usr/share/keyrings/{{ nvidia_repo_keyring.files[0].path | basename }}"
+        remote_src: true
+        mode: "0644"
+      when: nvidia_repo_keyring.matched | int > 0
+      register: nvidia_keyring_copy
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_repo
+
+    - name: Refresh apt metadata for NVIDIA repository packages
+      # Refresh after installing the local repo package and keyring.
+      ansible.builtin.apt:
+        update_cache: true
+      environment: "{{ hgx_apt_environment }}"
+      register: nvidia_apt_update
+      changed_when: false
+      tags:
+        - nvidia
+        - nvidia_repo
+        - nvidia_packages
+
+    - name: Install NVIDIA driver and platform packages
+      ansible.builtin.apt:
+        name: "{{ nvidia_driver_packages }}"
+        state: present
+      environment: "{{ hgx_apt_environment }}"
+      register: nvidia_driver_install
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_packages
+
+    - name: Enable and start NVIDIA Fabric Manager
+      ansible.builtin.systemd:
+        name: nvidia-fabricmanager
+        enabled: true
+        state: started
+      register: nvidia_fabricmanager_service
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_services
+
+    - name: Enable and start NVIDIA Persistenced
+      ansible.builtin.systemd:
+        name: nvidia-persistenced
+        enabled: true
+        state: started
+      register: nvidia_persistenced_service
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_services
+
+    - name: Download NCCL and DCGM packages
+      # Install order matters because libnccl-dev depends on libnccl2.
+      ansible.builtin.get_url:
+        url: "{{ offline_repo_base }}/{{ item }}"
+        dest: "/tmp/{{ item }}"
+        mode: "0644"
+        timeout: 300
+      loop: "{{ nccl_install_order }}"
+      register: nvidia_extra_downloads
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_extras
+
+    - name: Install NCCL and DCGM packages in the required order
+      ansible.builtin.apt:
+        deb: "/tmp/{{ item }}"
+        state: present
+      environment: "{{ hgx_apt_environment }}"
+      loop: "{{ nccl_install_order }}"
+      register: nvidia_extra_install
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_extras
+
+    - name: Enable and start NVIDIA DCGM
+      ansible.builtin.systemd:
+        name: nvidia-dcgm
+        enabled: true
+        state: started
+      register: nvidia_dcgm_service
+      notify: Reboot host
+      tags:
+        - nvidia
+        - nvidia_services
+
+    - name: Flush NVIDIA reboot handler before cleanup
+      ansible.builtin.meta: flush_handlers
+      when:
+        - nvidia_repo_download is changed
+          or nvidia_repo_install is changed
+          or (nvidia_keyring_copy is defined and nvidia_keyring_copy is changed)
+          or nvidia_driver_install is changed
+          or nvidia_fabricmanager_service is changed
+          or nvidia_persistenced_service is changed
+          or (nvidia_extra_downloads is changed)
+          or (nvidia_extra_install is changed)
+          or nvidia_dcgm_service is changed
+      tags:
+        - nvidia
+        - nvidia_handlers
+
+    - name: Remove downloaded NVIDIA driver repository package
+      ansible.builtin.file:
+        path: "{{ nvidia_driver_repo_path }}"
+        state: absent
+      tags:
+        - nvidia
+        - nvidia_cleanup
+
+    - name: Remove downloaded NCCL and DCGM packages
+      ansible.builtin.file:
+        path: "/tmp/{{ item }}"
+        state: absent
+      loop: "{{ nccl_install_order }}"
+      tags:
+        - nvidia
+        - nvidia_cleanup

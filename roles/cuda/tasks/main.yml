@@ -1,0 +1,106 @@
+---
+- name: Check whether CUDA compiler is already available
+  ansible.builtin.command: nvcc --version
+  register: cuda_nvcc_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - cuda
+    - cuda_check
+
+- name: Install CUDA toolkit from offline repository package
+  when: cuda_nvcc_check.rc != 0
+  block:
+    - name: Download CUDA repository package
+      ansible.builtin.get_url:
+        url: "{{ offline_repo_base }}/{{ cuda_repo_deb }}"
+        dest: "{{ cuda_repo_path }}"
+        mode: "0644"
+        timeout: 300
+      register: cuda_repo_download
+      notify: Reboot host
+      tags:
+        - cuda
+        - cuda_repo
+
+    - name: Install CUDA local repository package
+      ansible.builtin.apt:
+        deb: "{{ cuda_repo_path }}"
+        state: present
+      environment: "{{ hgx_apt_environment }}"
+      register: cuda_repo_install
+      notify: Reboot host
+      tags:
+        - cuda
+        - cuda_repo
+
+    - name: Discover CUDA repository keyring
+      # The local CUDA repo package seeds a matching keyring under /var/.
+      ansible.builtin.find:
+        paths: "{{ cuda_repo_dir }}"
+        patterns: "cuda-*-keyring.gpg"
+        file_type: file
+      register: cuda_repo_keyring
+      changed_when: false
+      tags:
+        - cuda
+        - cuda_repo
+
+    - name: Install CUDA repository keyring
+      ansible.builtin.copy:
+        src: "{{ cuda_repo_keyring.files[0].path }}"
+        dest: "/usr/share/keyrings/{{ cuda_repo_keyring.files[0].path | basename }}"
+        remote_src: true
+        mode: "0644"
+      when: cuda_repo_keyring.matched | int > 0
+      register: cuda_keyring_copy
+      notify: Reboot host
+      tags:
+        - cuda
+        - cuda_repo
+
+    - name: Refresh apt metadata for CUDA repository packages
+      # Refresh after registering the local repo so apt can resolve toolkit packages.
+      ansible.builtin.apt:
+        update_cache: true
+      environment: "{{ hgx_apt_environment }}"
+      register: cuda_apt_update
+      changed_when: false
+      tags:
+        - cuda
+        - cuda_repo
+        - cuda_packages
+
+    - name: Install CUDA toolkit only without driver metapackages
+      # Intentionally avoid the top-level cuda metapackage because it can pull drivers.
+      ansible.builtin.apt:
+        name:
+          - cuda-toolkit-12-9
+        state: present
+        update_cache: false
+        install_recommends: false
+      environment: "{{ hgx_apt_environment }}"
+      register: cuda_toolkit_install
+      notify: Reboot host
+      tags:
+        - cuda
+        - cuda_packages
+
+    - name: Flush CUDA reboot handler before cleanup
+      ansible.builtin.meta: flush_handlers
+      when:
+        - cuda_repo_download is changed
+          or cuda_repo_install is changed
+          or (cuda_keyring_copy is defined and cuda_keyring_copy is changed)
+          or cuda_toolkit_install is changed
+      tags:
+        - cuda
+        - cuda_handlers
+
+    - name: Remove downloaded CUDA repository package
+      ansible.builtin.file:
+        path: "{{ cuda_repo_path }}"
+        state: absent
+      tags:
+        - cuda
+        - cuda_cleanup

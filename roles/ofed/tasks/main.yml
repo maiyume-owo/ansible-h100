@@ -1,0 +1,175 @@
+---
+- name: Check whether OFED is already installed
+  ansible.builtin.shell: command -v ofed_info
+  args:
+    executable: /bin/bash
+  register: ofed_info_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - ofed
+    - ofed_check
+
+- name: Install MLNX OFED from offline media
+  when: ofed_info_check.rc != 0
+  block:
+    - name: Download OFED archive
+      ansible.builtin.get_url:
+        url: "{{ offline_repo_base }}/{{ ofed_archive }}"
+        dest: "{{ ofed_tarball_path }}"
+        mode: "0644"
+        timeout: 300
+      register: ofed_download
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_download
+
+    - name: Extract OFED archive under /var
+      ansible.builtin.unarchive:
+        src: "{{ ofed_tarball_path }}"
+        dest: /var
+        remote_src: true
+      register: ofed_extract
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_extract
+
+    - name: Install MLNX signing key for the temporary local repository
+      # The extracted OFED bundle ships its own apt signing key.
+      ansible.builtin.copy:
+        src: "{{ ofed_extracted_dir }}/MLNXsigning.key"
+        dest: "{{ ofed_signing_key }}"
+        remote_src: true
+        mode: "0644"
+      register: ofed_key
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_repo
+
+    - name: Configure local OFED apt source
+      # Use a file:// repo because the bundle is staged locally on the host.
+      ansible.builtin.copy:
+        dest: "{{ ofed_apt_source_file }}"
+        mode: "0644"
+        content: |
+          deb [signed-by={{ ofed_signing_key }}] file://{{ ofed_local_repo }} /
+      register: ofed_repo
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_repo
+
+    - name: Refresh apt metadata for the OFED local repository
+      ansible.builtin.command: >-
+        apt-get update
+        -o Dir::Etc::sourcelist={{ ofed_apt_source_file }}
+        -o Dir::Etc::sourceparts=-
+        -o APT::Get::List-Cleanup=0
+      environment: "{{ hgx_apt_environment }}"
+      register: ofed_apt_update
+      changed_when: false
+      tags:
+        - ofed
+        - ofed_repo
+        - ofed_packages
+
+    - name: Install OFED packages
+      ansible.builtin.apt:
+        name: "{{ ofed_packages }}"
+        state: present
+      environment: "{{ hgx_apt_environment }}"
+      register: ofed_install
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_packages
+
+    - name: Load nvidia_peermem kernel module immediately
+      # Load only when missing so the task stays idempotent without extra collections.
+      ansible.builtin.shell: |
+        if lsmod | awk '{print $1}' | grep -qx 'nvidia_peermem'; then
+          exit 0
+        fi
+        modprobe nvidia_peermem
+        echo loaded
+      args:
+        executable: /bin/bash
+      register: ofed_modprobe
+      changed_when: "'loaded' in ofed_modprobe.stdout"
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_modules
+
+    - name: Persist nvidia_peermem module loading across reboots
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/nvidia-peermem.conf
+        mode: "0644"
+        content: |
+          nvidia_peermem
+      register: ofed_persist_module
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_modules
+
+    - name: Rebuild initramfs for the active kernel
+      ansible.builtin.command: "update-initramfs -u -k {{ ansible_kernel }}"
+      register: ofed_initramfs
+      changed_when: true
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_boot
+
+    - name: Refresh GRUB configuration
+      ansible.builtin.command: update-grub
+      register: ofed_grub
+      changed_when: true
+      notify: Reboot host
+      tags:
+        - ofed
+        - ofed_boot
+
+    - name: Flush OFED reboot handler before cleanup
+      ansible.builtin.meta: flush_handlers
+      when:
+        - ofed_download is changed
+          or ofed_extract is changed
+          or ofed_key is changed
+          or ofed_repo is changed
+          or ofed_install is changed
+          or ofed_modprobe is changed
+          or ofed_persist_module is changed
+          or ofed_initramfs is changed
+          or ofed_grub is changed
+      tags:
+        - ofed
+        - ofed_handlers
+
+    - name: Remove downloaded OFED archive after successful installation
+      ansible.builtin.file:
+        path: "{{ ofed_tarball_path }}"
+        state: absent
+      tags:
+        - ofed
+        - ofed_cleanup
+
+    - name: Remove extracted OFED repository directory after successful installation
+      ansible.builtin.file:
+        path: "{{ ofed_extracted_dir }}"
+        state: absent
+      tags:
+        - ofed
+        - ofed_cleanup
+
+    - name: Remove local OFED apt source after successful installation
+      ansible.builtin.file:
+        path: "{{ ofed_apt_source_file }}"
+        state: absent
+      tags:
+        - ofed
+        - ofed_cleanup

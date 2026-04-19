@@ -1,0 +1,45 @@
+---
+- name: Set system timezone
+  ansible.builtin.timezone:
+    name: "{{ hgx_timezone }}"
+  register: common_timezone
+  notify: Reboot host
+  tags:
+    - common
+    - timezone
+
+- name: Upgrade base operating system packages
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+    upgrade: dist
+  environment: "{{ hgx_apt_environment }}"
+  register: common_dist_upgrade
+  notify: Reboot host
+  tags:
+    - common
+    - packages
+    - upgrade
+
+- name: Install offline build and runtime dependencies
+  ansible.builtin.apt:
+    name: "{{ common_packages }}"
+    state: present
+    update_cache: false
+  environment: "{{ hgx_apt_environment }}"
+  register: common_dependencies
+  notify: Reboot host
+  tags:
+    - common
+    - packages
+    - dependencies
+
+- name: Flush common handlers only when baseline changed
+  ansible.builtin.meta: flush_handlers
+  when:
+    - common_timezone is changed
+      or common_dist_upgrade is changed
+      or common_dependencies is changed
+  tags:
+    - common
+    - handlers
