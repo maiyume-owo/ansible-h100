@@ -71,6 +71,9 @@ nvidia_driver_packages:
   - "libnvidia-nscq-{{ nvidia_driver_version }}"
   - mft
   - mft-autocomplete
+
+cuda_packages:
+  - cuda-toolkit-12-9
   - nvidia-gds
 
 nccl_install_order:

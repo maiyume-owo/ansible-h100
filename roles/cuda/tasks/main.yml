@@ -71,8 +71,7 @@
     - name: Install CUDA toolkit only without driver metapackages
       # Intentionally avoid the top-level cuda metapackage because it can pull drivers.
       ansible.builtin.apt:
-        name:
-          - cuda-toolkit-12-9
+        name: "{{ cuda_packages }}"
         state: present
         update_cache: false
         install_recommends: false
