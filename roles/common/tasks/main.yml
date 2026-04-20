@@ -8,10 +8,34 @@
     - common
     - timezone
 
-- name: Upgrade base operating system packages
+- name: Fix apt sources
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    mode: "0644"
+    content: |
+      deb http://archive.ubuntu.com/ubuntu/ jammy main restricted universe multiverse
+      deb http://archive.ubuntu.com/ubuntu/ jammy-updates main restricted universe multiverse
+      deb http://security.ubuntu.com/ubuntu/ jammy-security main restricted universe multiverse
+  register: common_apt_sources
+  tags:
+    - common
+    - packages
+    - apt
+
+- name: Update apt cache
   ansible.builtin.apt:
     update_cache: true
-    cache_valid_time: 3600
+  environment: "{{ hgx_apt_environment }}"
+  register: common_apt_cache
+  changed_when: false
+  tags:
+    - common
+    - packages
+    - apt
+
+- name: Upgrade base operating system packages
+  ansible.builtin.apt:
+    update_cache: false
     upgrade: dist
   environment: "{{ hgx_apt_environment }}"
   register: common_dist_upgrade
