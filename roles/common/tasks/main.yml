@@ -8,6 +8,19 @@
     - common
     - timezone
 
+- name: Configure temporary apt proxy
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/01proxy
+    mode: "0644"
+    content: |
+      Acquire::http::Proxy "http://10.233.20.238:3142";
+      Acquire::https::Proxy "http://10.233.20.238:3142";
+  register: common_apt_proxy
+  tags:
+    - common
+    - packages
+    - apt
+
 - name: Fix apt sources
   ansible.builtin.copy:
     dest: /etc/apt/sources.list
@@ -58,12 +71,35 @@
     - packages
     - dependencies
 
+- name: Remove temporary apt proxy
+  ansible.builtin.file:
+    path: /etc/apt/apt.conf.d/01proxy
+    state: absent
+  register: common_apt_proxy_removed
+  tags:
+    - common
+    - packages
+    - apt
+
+- name: Refresh apt cache after removing proxy
+  ansible.builtin.apt:
+    update_cache: true
+  environment: "{{ hgx_apt_environment }}"
+  register: common_apt_cache_post_proxy
+  changed_when: false
+  tags:
+    - common
+    - packages
+    - apt
+
 - name: Flush common handlers only when baseline changed
   ansible.builtin.meta: flush_handlers
   when:
     - common_timezone is changed
+      or common_apt_proxy is changed
       or common_dist_upgrade is changed
       or common_dependencies is changed
+      or common_apt_proxy_removed is changed
   tags:
     - common
     - handlers
