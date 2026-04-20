@@ -79,6 +79,20 @@
         - nvidia
         - nvidia_packages
 
+    - name: Reboot after NVIDIA driver installation
+      ansible.builtin.meta: flush_handlers
+      tags:
+        - nvidia
+        - nvidia_handlers
+
+    - name: Verify NVIDIA driver is available after reboot
+      ansible.builtin.command: nvidia-smi
+      register: nvidia_smi_post_reboot
+      changed_when: false
+      tags:
+        - nvidia
+        - nvidia_verify
+
     - name: Enable and start NVIDIA Fabric Manager
       ansible.builtin.systemd:
         name: nvidia-fabricmanager
@@ -132,12 +146,6 @@
       tags:
         - nvidia
         - nvidia_services
-
-    - name: Flush NVIDIA reboot handler before cleanup
-      ansible.builtin.meta: flush_handlers
-      tags:
-        - nvidia
-        - nvidia_handlers
 
     - name: Remove downloaded NVIDIA driver repository package
       ansible.builtin.file:
