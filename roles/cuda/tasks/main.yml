@@ -18,7 +18,6 @@
         mode: "0644"
         timeout: 300
       register: cuda_repo_download
-      notify: Reboot host
       tags:
         - cuda
         - cuda_repo
@@ -29,7 +28,6 @@
         state: present
       environment: "{{ hgx_apt_environment }}"
       register: cuda_repo_install
-      notify: Reboot host
       tags:
         - cuda
         - cuda_repo
@@ -54,7 +52,6 @@
         mode: "0644"
       when: cuda_repo_keyring.matched | int > 0
       register: cuda_keyring_copy
-      notify: Reboot host
       tags:
         - cuda
         - cuda_repo
@@ -81,18 +78,13 @@
         install_recommends: false
       environment: "{{ hgx_apt_environment }}"
       register: cuda_toolkit_install
-      notify: Reboot host
+      notify: Reboot cuda host
       tags:
         - cuda
         - cuda_packages
 
     - name: Flush CUDA reboot handler before cleanup
       ansible.builtin.meta: flush_handlers
-      when:
-        - cuda_repo_download is changed
-          or cuda_repo_install is changed
-          or (cuda_keyring_copy is defined and cuda_keyring_copy is changed)
-          or cuda_toolkit_install is changed
       tags:
         - cuda
         - cuda_handlers

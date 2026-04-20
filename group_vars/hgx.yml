@@ -25,7 +25,7 @@ ofed_extracted_dir: "/var/MLNX_OFED_LINUX-{{ ofed_version }}-ubuntu22.04-x86_64"
 ofed_local_repo: "{{ ofed_extracted_dir }}/DEBS"
 ofed_tarball_path: "/tmp/{{ ofed_archive }}"
 ofed_apt_source_file: "/etc/apt/sources.list.d/mlnx-ofed-local.list"
-ofed_signing_key: "/usr/share/keyrings/MLNXsigning.key"
+ofed_signing_key: "/usr/share/keyrings/mlnx-ofed-keyring.gpg"
 
 nvidia_driver_repo_path: "/tmp/{{ nvidia_driver_repo_deb }}"
 nvidia_driver_repo_dir: "/var/nvidia-driver-local-repo-ubuntu2204-570.211.01"

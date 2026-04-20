@@ -3,7 +3,7 @@
   ansible.builtin.timezone:
     name: "{{ hgx_timezone }}"
   register: common_timezone
-  notify: Reboot host
+  notify: Reboot common host
   tags:
     - common
     - timezone
@@ -52,7 +52,7 @@
     upgrade: dist
   environment: "{{ hgx_apt_environment }}"
   register: common_dist_upgrade
-  notify: Reboot host
+  notify: Reboot common host
   tags:
     - common
     - packages
@@ -65,7 +65,7 @@
     update_cache: false
   environment: "{{ hgx_apt_environment }}"
   register: common_dependencies
-  notify: Reboot host
+  notify: Reboot common host
   tags:
     - common
     - packages

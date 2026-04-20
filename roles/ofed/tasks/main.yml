@@ -20,7 +20,6 @@
         mode: "0644"
         timeout: 300
       register: ofed_download
-      notify: Reboot host
       tags:
         - ofed
         - ofed_download
@@ -31,20 +30,18 @@
         dest: /var
         remote_src: true
       register: ofed_extract
-      notify: Reboot host
       tags:
         - ofed
         - ofed_extract
 
     - name: Install MLNX signing key for the temporary local repository
-      # The extracted OFED bundle ships its own apt signing key.
+      # The extracted OFED bundle ships its apt keyring as mlnx-ofed-keyring.gpg.
       ansible.builtin.copy:
-        src: "{{ ofed_extracted_dir }}/MLNXsigning.key"
+        src: "{{ ofed_extracted_dir }}/mlnx-ofed-keyring.gpg"
         dest: "{{ ofed_signing_key }}"
         remote_src: true
         mode: "0644"
       register: ofed_key
-      notify: Reboot host
       tags:
         - ofed
         - ofed_repo
@@ -57,7 +54,6 @@
         content: |
           deb [signed-by={{ ofed_signing_key }}] file://{{ ofed_local_repo }} /
       register: ofed_repo
-      notify: Reboot host
       tags:
         - ofed
         - ofed_repo
@@ -82,7 +78,7 @@
         state: present
       environment: "{{ hgx_apt_environment }}"
       register: ofed_install
-      notify: Reboot host
+      notify: Reboot ofed host
       tags:
         - ofed
         - ofed_packages
@@ -99,7 +95,7 @@
         executable: /bin/bash
       register: ofed_modprobe
       changed_when: "'loaded' in ofed_modprobe.stdout"
-      notify: Reboot host
+      notify: Reboot ofed host
       tags:
         - ofed
         - ofed_modules
@@ -111,7 +107,7 @@
         content: |
           nvidia_peermem
       register: ofed_persist_module
-      notify: Reboot host
+      notify: Reboot ofed host
       tags:
         - ofed
         - ofed_modules
@@ -120,7 +116,7 @@
       ansible.builtin.command: "update-initramfs -u -k {{ ansible_kernel }}"
       register: ofed_initramfs
       changed_when: true
-      notify: Reboot host
+      notify: Reboot ofed host
       tags:
         - ofed
         - ofed_boot
@@ -129,23 +125,13 @@
       ansible.builtin.command: update-grub
       register: ofed_grub
       changed_when: true
-      notify: Reboot host
+      notify: Reboot ofed host
       tags:
         - ofed
         - ofed_boot
 
     - name: Flush OFED reboot handler before cleanup
       ansible.builtin.meta: flush_handlers
-      when:
-        - ofed_download is changed
-          or ofed_extract is changed
-          or ofed_key is changed
-          or ofed_repo is changed
-          or ofed_install is changed
-          or ofed_modprobe is changed
-          or ofed_persist_module is changed
-          or ofed_initramfs is changed
-          or ofed_grub is changed
       tags:
         - ofed
         - ofed_handlers
